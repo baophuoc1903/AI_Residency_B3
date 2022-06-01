@@ -1,5 +1,7 @@
 import torch
 import os
+import pandas as pd
+import datetime
 
 
 def save(net, logger, opt, epoch=0, best=False):
@@ -33,3 +35,25 @@ def load(net, hps, epoch=0, best=False):
 
     net.load_state_dict(params)
     return net, logs
+
+
+def save_metrics_to_csv(exp_name, run_count, learn, metrics):
+    moment = datetime.datetime.now()
+    df = pd.DataFrame()
+    for m in metrics:
+        name = f'{m}_{exp_name}_run-{run_count}_{moment.year}-{moment.month}_{moment.day}'
+        ls = []
+        if m == 'val_loss_and_acc':
+            acc = []
+            for learn_metric in learn.recorder.metrics:
+                acc.append(learn_metric[0].item())
+            ls = learn.recorder.val_losses
+            d = {name: ls, 'acc': acc}
+            df = pd.DataFrame(d)
+        elif m == 'trn_loss':
+            for learn_loss in learn.recorder.losses:
+                ls.append(learn_loss.item())
+            df = pd.DataFrame(ls)
+            df.columns = [name]
+
+        df.to_csv(f'{name}_{m}.csv', index=False)

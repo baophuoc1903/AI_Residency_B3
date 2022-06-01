@@ -5,3 +5,6 @@ opencv-python
 fastai==1.0.61
 efficientnet_pytorch
 tqdm
+datetime
+sklearn
+torchsummary

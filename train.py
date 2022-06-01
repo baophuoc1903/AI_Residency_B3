@@ -1,72 +1,96 @@
 import warnings
-import torch
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from utils.logger import Logger
-from utils.loops import train, evaluate
-from EfficientNet import EfficientNet_Mish
-from dataset import AirCraftDataset
-from torch.utils.data import DataLoader
 from utils.checkpoint import *
+from fastai.callbacks import *
+from fastai.vision import Learner
+from fastai.layers import LabelSmoothingCrossEntropy
+from model import Efficientnet_b3, Efficient_Sift
+from dataset import AirCraftDataset
 import argparse
-from fastai.layers import *
-
+from fastai.vision import annealing_cos, annealing_linear, annealing_exp, CallbackList, accuracy
+from fastai.utils.mem import Floats, listify, defaults, Optional, Tuple
+from utils import Ranger, save_metrics_to_csv
 warnings.filterwarnings("ignore")
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def run(opt, epochs, batch_size=16, augment=False, image_shape=(224, 224)):
-    logger = Logger()
-    train_data, val_data, test_data = AirCraftDataset('train', augment=augment, shape=image_shape),\
-                                      AirCraftDataset('val', shape=image_shape),\
-                                      AirCraftDataset('test', shape=image_shape)
-    trainloader = DataLoader(train_data, batch_size=batch_size, shuffle=True, collate_fn=train_data.collate_fn)
-    valloader = DataLoader(val_data, batch_size=batch_size, shuffle=True, collate_fn=val_data.collate_fn)
-    testloader = DataLoader(test_data, batch_size=batch_size, shuffle=True, collate_fn=test_data.collate_fn)
-    print("Read data successfully")
-    net = EfficientNet_Mish(num_classes=train_data.num_labels)
-    net = net.to(device)
+def FlatCosAnnealScheduler(learn, lr: float = 4e-3, tot_epochs: int = 1, moms: Floats = (0.95, 0.999),
+                           start_pct: float = 0.72, curve='cosine'):
+    """Manage FCFit training as found in the ImageNet experiments"""
+    n = len(learn.data.train_dl)
+    anneal_start = int(n * tot_epochs * start_pct)
+    batch_finish = ((n * tot_epochs) - anneal_start)
+    if curve == "cosine":
+        curve_type = annealing_cos
+    elif curve == "linear":
+        curve_type = annealing_linear
+    elif curve == "exponential":
+        curve_type = annealing_exp
+    else:
+        raise ValueError(f"annealing type not supported {curve}")
 
-    learning_rate = opt.lr
-    decay = 0.000484
-    optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate, weight_decay=decay)
+    phase0 = TrainingPhase(anneal_start).schedule_hp('lr', lr).schedule_hp('mom', moms[0])
+    phase1 = TrainingPhase(batch_finish).schedule_hp('lr', lr, anneal=curve_type).schedule_hp('mom', moms[1])
+    phases = [phase0, phase1]
+    return GeneralScheduler(learn, phases)
 
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.75, patience=4, verbose=True, min_lr=1e-7)
 
-    best_accuracy = 0
-    print("Training on", device)
-    for epoch in range(epochs):
-        print('Epoch {}:'.format(epoch))
-        loss_train, acc_train = train(net, trainloader, optimizer, loss_fcn=torch.nn.CrossEntropyLoss(reduction='sum'), device=device)
-        loss_val, acc_val = evaluate(net, valloader, loss_fcn=torch.nn.CrossEntropyLoss(reduction='sum'), device=device)
-        logger.add_logs(loss_train, loss_val)
+def fit_fc(learn: Learner, tot_epochs: int = None, lr: float = defaults.lr,
+           moms: Tuple[float, float] = (0.95, 0.85), start_pct: float = 0.72,
+           wd: float = None, callbacks: Optional[CallbackList] = None) -> None:
+    """Fit a model with Flat Cosine Annealing"""
+    max_lr = learn.lr_range(lr)
+    callbacks = listify(callbacks)
+    callbacks.append(FlatCosAnnealScheduler(learn, lr, moms=moms, start_pct=start_pct, tot_epochs=tot_epochs))
+    callbacks.append(SaveModelCallback(learn, monitor='accuracy', mode='max', name='best_model'))
+    learn.fit(tot_epochs, max_lr, wd=wd, callbacks=callbacks)
 
-        # Update learning rate
-        scheduler.step(acc_val)
-        s = ('%20s'*4) % ('Train loss', 'Train accuracy', 'Val loss', 'Val accuracy')
-        print(s)
-        ret = '%20.3g'*4
-        print(ret % (loss_train, acc_train, loss_val, acc_val))
-        if epochs % 1 == 0:
-            save(net, logger, opt, epoch=epoch, best=False)
-        if acc_val > best_accuracy:
-            save(net, logger, opt, best=True)
-            best_accuracy = acc_val
 
-    # Calculate performance on test set
-    print('Test performance:')
-    results = evaluate(net, testloader, loss_fcn=torch.nn.BCEWithLogitsLoss())
-    s = ('%20s' * 2) % ('Test loss', 'Test accuracy')
-    print(s)
-    ret = '%20.3g' * 2
-    print(ret % (results[0], results[1]))
+def run(model, data_test, epochs: int = 20, lr: float = 1e-4, batch_size: int = 64,
+        exp_name: str = 'Efficient_mish', model_save_dir: str = './',
+        start_pct: float = 0.1, wd: float = 1e-3):
+
+    metrics = ['trn_loss', 'val_loss_and_acc']
+    data_test.batch_size = batch_size
+    # Manually restarted the gpu kernel and changed the run count as weights seemed to be being saved between runs
+    run_count = 1
+    learn = Learner(data_test, model=model, opt_func=Ranger,
+                    wd=1e-3, bn_wd=False, true_wd=True,
+                    metrics=[accuracy],
+                    loss_func=LabelSmoothingCrossEntropy()
+                    )
+
+    if str(device) != 'cpu':
+        learn = learn.to_fp16()
+
+    learn.model_dir = model_save_dir
+    fit_fc(learn, tot_epochs=epochs, lr=lr, start_pct=start_pct, wd=wd)
+
+    learn.save(f'{exp_name}_run-{run_count}')
+    # SAVE METRICS
+    save_metrics_to_csv(exp_name, run_count, learn, metrics)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch FGVC-AIRCRAFT Training')
-    parser.add_argument('--model', type=str, default='efficientnet-b7', help='CNN architecture')
-    parser.add_argument('--model_save_dir', default='./run/exp', type=str, help='save weight')
-    parser.add_argument('--bs', default=4, type=int, help='batch_size')
-    parser.add_argument('--epochs', default=1, type=int, help='number of epochs')
-    parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
+    parser.add_argument('--model_save_dir', default='./run/exp', type=str, help='save model')
+    parser.add_argument('--epochs', default=20, type=int, help='number of epochs')
+    parser.add_argument('--lr', default=0.0001, type=float, help='learning rate')
+    parser.add_argument('--bs', default=64, type=int, help='batch_size')
+    parser.add_argument('--exp_name', default="Efficient_Mish", type=str, help='Name of experiment-model')
+    parser.add_argument('--start_pct', default=0.1, type=float, help='percent of epochs to run cosine annual scheduler')
+    parser.add_argument('--wd', default=0.001, type=float, help='wd')
+    parser.add_argument('--sift', action='store_true', help='Using SIFT or not')
+    parser.add_argument('--data_folder', default=r"./dataset/fgvc-aircraft-2013b/data", type=str, help="data folder")
+    parser.add_argument('--csv_file', default=r"./dataset/data.csv", type=str, help="path to data in csv form")
+    parser.add_argument('--img_shape', default=299, type=int, help="Input image shape")
+
     opt = parser.parse_args()
-    run(opt, epochs=opt.epochs, batch_size=opt.bs, augment=True)
+    dataset = AirCraftDataset(data_folder=opt.data_folder, csv_file=opt.csv_file, shape=opt.img_shape)
+    src, data, src_test, data_test = dataset.extract_data()
+    if opt.sift:
+        model = Efficient_Sift(data_test)
+    else:
+        model = Efficientnet_b3(data_test)
+    run(model, data_test, epochs=opt.epochs, lr=opt.lr, batch_size=opt.bs,
+        exp_name=opt.exp_name, model_save_dir=opt.model_save_dir,
+        start_pct=opt.start_pct, wd=opt.wd)

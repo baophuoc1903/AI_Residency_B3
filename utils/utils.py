@@ -1,28 +1,13 @@
 import matplotlib.pyplot as plt
-import pandas as pd
+from sklearn.metrics import confusion_matrix, accuracy_score
+import torch
+import numpy as np
 
 
-def save_metrics_to_csv(exp_name, run_count, learn, metrics):
-    for m in metrics:
-        name = f'{m}_{exp_name}_run{str(run_count)}_2019-09_04'
-
-        ls = []
-        if m == 'val_loss_and_acc':
-            acc = []
-            for l in learn.recorder.metrics:
-                 acc.append(l[0].item())
-            ls = learn.recorder.val_losses
-            d = {name: ls, 'acc': acc}
-            df = pd.DataFrame(d)
-            # df.columns = [name, 'acc']
-        elif m == 'trn_loss':
-            for l in learn.recorder.losses:
-                ls.append(l.item())
-            df = pd.DataFrame(ls)
-            df.columns = [name]
-
-        df.to_csv(f'{name}_{m}.csv', index=False)
-        print(df.head())
+def accuracy_test(y_preds, y_true):
+    preds = torch.argmax(y_preds, dim=1)
+    confu_ma = confusion_matrix(y_true, preds)
+    return torch.diag((confu_ma*np.eye(confu_ma.shape[0]))/confu_ma.sum(dim=1)).mean().item()
 
 
 def show_img(im, figsize=None, ax=None):
