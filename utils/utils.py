@@ -5,9 +5,9 @@ import numpy as np
 
 
 def accuracy_test(y_preds, y_true):
-    preds = torch.argmax(y_preds, dim=1)
-    confu_ma = confusion_matrix(y_true, preds)
-    return torch.diag((confu_ma*np.eye(confu_ma.shape[0]))/confu_ma.sum(dim=1)).mean().item()
+    preds = torch.argmax(y_preds, axis=1)
+    confu_ma = torch.tensor(confusion_matrix(y_true, preds))
+    return torch.diag((confu_ma * torch.eye(confu_ma.shape[0])) / confu_ma.sum(dim=1)).mean().item()
 
 
 def show_img(im, figsize=None, ax=None):
