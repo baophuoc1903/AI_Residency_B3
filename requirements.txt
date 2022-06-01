@@ -1,0 +1,7 @@
+torch
+numpy
+matplotlib
+opencv-python
+fastai==1.0.61
+efficientnet_pytorch
+tqdm
