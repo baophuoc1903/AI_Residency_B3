@@ -4,7 +4,6 @@ from torch import nn
 from torchsummary import summary
 from utils import *
 import warnings
-from efficientnet_pytorch import EfficientNet
 warnings.filterwarnings("ignore")
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -71,5 +70,5 @@ if __name__ == '__main__':
     dataset = AirCraftDataset()
     src, data, src_test, data_test = dataset.extract_data()
     model = Efficientnet_b3(data)
-    # model = Efficient_Sift(data)
+    model = Efficient_Sift(data)
     summary(model, (3, 299, 299), batch_size=16)

@@ -3,6 +3,11 @@ import matplotlib.pyplot as plt
 from dataset import AirCraftDataset
 from model import compute_dense_sift
 import math
+from utils import accuracy_test
+from model import Efficient_Sift, Efficientnet_b3
+from fastai.vision import Learner, LabelSmoothingCrossEntropy, accuracy, DatasetType
+from utils import Ranger
+from pathlib import PosixPath
 
 
 def show_sift_features(image_path, num_sift=16):
@@ -58,21 +63,70 @@ def visualize_sift_effect(img1, img2, n_matches=100):
 
 
 if __name__ == '__main__':
-    # visualize_batch()
-    img1 = cv2.imread(r"./dataset/fgvc-aircraft-2013b/data/images/0056978.jpg")[:-20, :, ::-1]
-    img1 = cv2.resize(img1, (299, 299))
-    img2 = cv2.imread(r"./dataset/fgvc-aircraft-2013b/data/images/0894380.jpg")[:-20, :, ::-1]
-    img2 = cv2.resize(img2, (299, 299))
-    # visualize_sift_effect(img1, img2, n_matches=20)
-    plt.subplot(121)
-    plt.imshow(img1)
-    plt.title(f'0056978.jpg - Class: 707-320')
-    plt.xticks([])
-    plt.yticks([])
-    plt.subplot(122)
-    plt.imshow(img2)
-    plt.title(f'0894380.jpg - Class: 707-320')
-    plt.xticks([])
-    plt.yticks([])
-    plt.show()
+    dataset = AirCraftDataset()
+    src, data, src_test, data_test = dataset.extract_data()
+
+    metrics = ['trn_loss', 'val_loss_and_acc']
+    data_test.batch_size = 64
+    effnet_b3 = "efficientnet-b3"
+
+    model_weight_save = './'
+    # Mish EfficientNet-B3
+    print("Start valid Mish EfficientNet-B3")
+    mish_model = Efficientnet_b3(data, effnet_b3)
+    mish_learn = Learner(data_test,
+                         model=mish_model,
+                         wd=1e-3,
+                         opt_func=Ranger,
+                         bn_wd=False,
+                         true_wd=True,
+                         metrics=[accuracy],
+                         loss_func=LabelSmoothingCrossEntropy()
+                         ).to_fp16()
+    mish_learn.model_dir = model_weight_save
+    tmp_path = mish_learn.path
+    mish_learn.path = PosixPath(model_weight_save)
+    mish_learn.load('best_model')
+    mish_learn.path = tmp_path
+    preds_mish, y_true = mish_learn.get_preds(ds_type=DatasetType.Valid)
+
+    # SIFT EfficientNet-B3
+    print("Start valid SIFT EfficientNet-B3")
+    sift_model = Efficient_Sift(data, effnet_b3)
+    sift_learn = Learner(data_test,
+                         model=sift_model,
+                         wd=1e-3,
+                         opt_func=Ranger,
+                         bn_wd=False,
+                         true_wd=True,
+                         metrics=[accuracy],
+                         loss_func=LabelSmoothingCrossEntropy()
+                         ).to_fp16()
+    sift_learn.model_dir = model_weight_save
+    tmp_path = sift_learn.path
+    sift_learn.path = PosixPath(model_weight_save)
+    sift_learn.load('best_model_sift')
+    sift_learn.path = tmp_path
+    preds_sift, y_true = sift_learn.get_preds(ds_type=DatasetType.Valid)
+
+    final_acc = accuracy_test(preds_sift.clone() + preds_mish.clone(), y_true)
+    print(final_acc)
+
+    # # visualize_batch()
+    # img1 = cv2.imread(r"./dataset/fgvc-aircraft-2013b/data/images/0056978.jpg")[:-20, :, ::-1]
+    # img1 = cv2.resize(img1, (299, 299))
+    # img2 = cv2.imread(r"./dataset/fgvc-aircraft-2013b/data/images/0894380.jpg")[:-20, :, ::-1]
+    # img2 = cv2.resize(img2, (299, 299))
+    # # visualize_sift_effect(img1, img2, n_matches=20)
+    # plt.subplot(121)
+    # plt.imshow(img1)
+    # plt.title(f'0056978.jpg - Class: 707-320')
+    # plt.xticks([])
+    # plt.yticks([])
+    # plt.subplot(122)
+    # plt.imshow(img2)
+    # plt.title(f'0894380.jpg - Class: 707-320')
+    # plt.xticks([])
+    # plt.yticks([])
+    # plt.show()
 
