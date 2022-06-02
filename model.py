@@ -15,17 +15,17 @@ def compute_dense_sift(image):
     image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
 
     step_size = int(math.sqrt(image.shape[0] ** 2 / 16))
-    kp = [cv2.KeyPoint(x + step_size / 2, y + step_size / 2, step_size) for y in
-          range(0, image.shape[0] - step_size // 2, step_size)
+    kp = [cv2.KeyPoint(x + step_size / 2, y + step_size / 2, step_size)
+          for y in range(0, image.shape[0] - step_size // 2, step_size)
           for x in range(0, image.shape[1] - step_size // 2, step_size)]
     __, sift_desc = sift.compute(image, kp)
-    return sift_desc
+    return sift_desc, kp
 
 
 def dense_sift_feature(data):
     sift = np.zeros((data.shape[0], 16, 128))
     for i in range(data.shape[0]):
-        sift[i] = compute_dense_sift(data[i])
+        sift[i] = compute_dense_sift(data[i])[0]
     return torch.tensor(sift).reshape(-1, 2048)
 
 
@@ -70,5 +70,6 @@ if __name__ == '__main__':
     from dataset import AirCraftDataset
     dataset = AirCraftDataset()
     src, data, src_test, data_test = dataset.extract_data()
-    model = Efficient_Sift(data)
+    model = Efficientnet_b3(data)
+    # model = Efficient_Sift(data)
     summary(model, (3, 299, 299), batch_size=16)
