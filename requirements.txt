@@ -1,7 +1,7 @@
 torch
 numpy
 matplotlib
-opencv-python
+opencv-python==4.5.3.56
 fastai==1.0.61
 efficientnet_pytorch
 tqdm
