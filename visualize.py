@@ -13,8 +13,9 @@ from pathlib import PosixPath
 def show_sift_features(image_path, num_sift=16):
     # batch of 16 key points in 16 equally region in image
     imageread = cv2.imread(image_path)
-    imageread = cv2.resize(imageread, (299, 299))
     imageread = cv2.cvtColor(imageread, cv2.COLOR_BGR2RGB)
+    imageread = imageread[:-20, :, :]
+    imageread = cv2.resize(imageread, (299, 299))
     imagegray = cv2.cvtColor(imageread, cv2.COLOR_RGB2GRAY)
 
     step_size = int(math.sqrt(imagegray.shape[0] ** 2 / num_sift))
@@ -28,6 +29,8 @@ def show_sift_features(image_path, num_sift=16):
                                      flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
 
     plt.imshow(output_image)
+    plt.xticks([])
+    plt.yticks([])
     plt.show()
 
 
@@ -113,11 +116,12 @@ if __name__ == '__main__':
     # print(final_acc)
 
     # visualize_batch()
-    img1 = cv2.imread(r"./dataset/fgvc-aircraft-2013b/data/images/0951982.jpg")[:-20, :, ::-1]
-    img1 = cv2.resize(img1, (299, 299))
-    img2 = cv2.imread(r"./dataset/fgvc-aircraft-2013b/data/images/0729223.jpg")[:-20, :, ::-1]
-    img2 = cv2.resize(img2, (299, 299))
-    visualize_sift_effect(img1, img2, n_matches=100)
+    # img1 = cv2.imread(r"./dataset/fgvc-aircraft-2013b/data/images/0951982.jpg")[:-20, :, ::-1]
+    # img1 = cv2.resize(img1, (299, 299))
+    # img2 = cv2.imread(r"./dataset/fgvc-aircraft-2013b/data/images/0729223.jpg")[:-20, :, ::-1]
+    # img2 = cv2.resize(img2, (299, 299))
+    # visualize_sift_effect(img1, img2, n_matches=100)
+    show_sift_features(r"./dataset/fgvc-aircraft-2013b/data/images/0951982.jpg", 16)
     # plt.subplot(121)
     # plt.imshow(img1)
     # plt.title(f'0056978.jpg - Class: 707-320')
